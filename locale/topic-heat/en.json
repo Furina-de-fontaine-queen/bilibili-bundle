@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Bilibili Topic Heat",
+    "description": "Queries the multi-model heat index of a single Bilibili topic within the 1d/7d/1m/90 time windows, returning a 0-100 score plus an interpretable breakdown (composite / discussion / momentum / scale)."
+  }
+}

@@ -1,0 +1,132 @@
+# bilibili-bundle 的默认装配行。
+#
+# 每个插件一行，name 用包名子路径（exports 的 ./plugins/*），互不耦合：
+#   - id 固定为 bilibili-topic-heat，profile 的 patch 层可以用它做定向覆盖；
+#   - config 就是插件默认配置（契约 §5），所有字段都允许被 profile patch 覆盖；
+#   - 插件自身会深合并默认值并做类型/范围兜底，覆盖时只写想改的字段即可。
+#
+# 工具：bili_topic_heat(topic, window) —— 查询单个 B 站话题在 1d/7d/1m/90
+# 时间跨度内的多模型热度指数（0~100）。插件只在工具被调用时才访问网络。
+#
+# 新增插件：在 lib/plugins/<name>/ 建入口（导出 name/inject/apply），在
+# package.json 的 exports 里加子路径，然后在这里追加一行 insert。
+#
+# 注意：本 bundle 故意不覆盖 system-prompt 的 persona。Web 会话默认使用
+# standard agent preset，preset 的 @deepseek-ai/dsh-persona 会在 agent 作用域
+# 注册同名 deployment:persona-prefix 段并「遮蔽」部署级 persona —— 部署层
+# 的 personaPrefix 在 preset 会话里永远不渲染（这是 DSH 的设计：preset 取代
+# 部署 persona）。要改 Web 会话的 persona，请用 Web 界面的 preset 编辑器，
+# 或在 profile 层覆盖 preset-standard 行内 persona 插件的配置。
+
+- insert:
+  - id: bilibili-topic-heat
+    name: dsh-bilibili-bundle/plugins/topic-heat
+    config:
+      # 默认时间跨度；必须是 windows 里的一个键。
+      defaults:
+        window: "7d"
+      # 工具参数 window 的 enum 由这里的键生成；值是该跨度对应的天数。
+      windows:
+        "1d": 1
+        "7d": 7
+        "1m": 30
+        "90": 90
+      # 采样规模：pageSize 为单页条数；stockPages 为按播放排序（存量）翻几页；
+      # flowPages 为按发布时间排序（增量）翻几页；headSize 为进入规模类分量的
+      # 头部条数；minSample 为样本量下限，低于它会给 warning。
+      sampling:
+        pageSize: 50
+        stockPages: 3
+        flowPages: 3
+        headSize: 50
+        minSample: 5
+      # 请求控制：intervalMs 相邻请求最小间隔（限速）；
+      # timeoutMs 单次请求超时；maxRetries 失败重试次数；
+      # maxRequests 单次工具调用的请求预算；cacheTtlSeconds 磁盘缓存有效期；
+      # cacheDir 缓存目录，空字符串表示 os.tmpdir()/dsh-bilibili-cache；
+      # userAgent 请求 UA，需伪装成普通浏览器以避免 412。
+      request:
+        intervalMs: 2000
+        timeoutMs: 15000
+        maxRetries: 3
+        maxRequests: 60
+        cacheTtlSeconds: 3600
+        cacheDir: ""
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+      # 归一化锚点：log 尺度分量的上下界、比值类分量的锚点、搜索供给的饱和值。
+      # 锚点按 2026-11 的实测采样标定；B 站内容体量变化后应重新标定。
+      anchors:
+        playLogFloor: 4.4
+        playLogCeil: 7.6
+        engLogFloor: 2.8
+        engLogCeil: 6.5
+        peakLogFloor: 5.0
+        peakLogCeil: 7.85
+        rate: 0.13
+        supply: 1000
+        velocity: 4000
+        supplySaturatedValue: 1.0
+      # 加权互动的系数：越难刷的互动给越高权重（点赞 1 / 收藏 2 / 评论 2 / 弹幕 3）。
+      engagementWeights:
+        like: 1
+        favorite: 2
+        reply: 2
+        danmaku: 3
+      # 四个模型的分量权重；每个模型内部按 Σweight 归一化，不要求和为 1。
+      modelWeights:
+        composite:
+          play: 0.18
+          engagement: 0.22
+          rate: 0.15
+          peak: 0.10
+          velocity: 0.20
+          supply: 0.05
+          relevance: 0.10
+        discussion:
+          engagement: 0.40
+          rate: 0.35
+          peak: 0.10
+          relevance: 0.15
+        momentum:
+          velocity: 0.55
+          supply: 0.25
+          relevance: 0.20
+        scale:
+          play: 0.45
+          peak: 0.30
+          supply: 0.25
+      # 相关性软惩罚：命中率低于 floor 时主指数乘 penalty，并给 warning。
+      relevance:
+        floor: 0.30
+        penalty: 0.6
+      # 热搜榜加成的上限（分）；名次越高加成越小。
+      hotBonusMax: 8
+      # 评级阈值，从高到低；低于最低档（30 分）记为“凉”。
+      tiers:
+        - label: "爆"
+          min: 75
+        - label: "热"
+          min: 60
+        - label: "温"
+          min: 45
+        - label: "冷"
+          min: 30
+      # 输出裁剪：topVideos 为返回的代表视频条数；maxWarnings 为最多保留的警告数。
+      output:
+        topVideos: 5
+        maxWarnings: 6
+
+  # 每 N 个模型步向消息流注入一条进度提醒（agent/pre-step，不经
+  # systemPrompt，极简/标准模式行为一致；计数按会话隔离）。
+  - id: bilibili-progress-nudge
+    name: dsh-bilibili-bundle/plugins/progress-nudge
+    config:
+      # 提醒间隔（模型步数，正整数）。
+      everySteps: 5
+      # 提醒文案（模型可见，英文）。
+      text: 'Progress checkpoint: briefly tell the user what you have accomplished so far and what remains for the current task, then continue working on the task.'
+
+  # 当且仅当 bili_topic_heat 出现在组装的工具 schema 中时，系统提示词里
+  # 追加英文使用策略（system-prompt/assemble waterfall，严格满足 iff）。
+  - id: bilibili-topic-heat-guidance
+    name: dsh-bilibili-bundle/plugins/topic-heat-guidance

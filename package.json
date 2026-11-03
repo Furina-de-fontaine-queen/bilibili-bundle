@@ -1,0 +1,26 @@
+{
+  "name": "dsh-bilibili-bundle",
+  "version": "0.2.0",
+  "description": "DSH Host tool bundle: Bilibili tool plugins (currently bili_topic_heat — a multi-model heat index 0-100 for a single topic over the 1d/7d/1m/90 windows), sharing one rate-limited Bilibili API client",
+  "type": "module",
+  "exports": {
+    "./plugins/*": "./lib/plugins/*/index.js",
+    "./plugins/*/locale/*.json": "./locale/*/*.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale/*/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}
